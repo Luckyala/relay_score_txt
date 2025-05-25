@@ -177,25 +177,88 @@ if uploaded_files:
         all_parts = extract_all_name_parts(all_raw_names)
         name_patterns = find_common_patterns(all_parts)
         
+        # 디버깅: 원시 데이터 표시
+        with st.expander("🔍 디버깅: 원시 데이터 확인"):
+            st.write("**수집된 원시 이름들 (처음 20개):**")
+            for i, raw_name in enumerate(all_raw_names[:20]):
+                st.write(f"{i+1}. '{raw_name}'")
+            
+            if len(all_raw_names) > 20:
+                st.write(f"... 총 {len(all_raw_names)}개")
+            
+            st.write("**분할된 모든 파트들 (빈도순 상위 30개):**")
+            part_counter = Counter(all_parts)
+            for part, count in part_counter.most_common(30):
+                st.write(f"- '{part}': {count}회")
+        
         # 패턴 분석 결과 표시
-        st.subheader("🔍 발견된 이름 패턴")
+        st.subheader("🔍 발견된 이름 패턴 (2회 이상)")
         
         col1, col2, col3 = st.columns(3)
         
         with col1:
             st.write("**한국어 이름:**")
-            for name, count in sorted(name_patterns['korean'].items(), key=lambda x: x[1], reverse=True):
-                st.write(f"- {name} ({count}회)")
+            if name_patterns['korean']:
+                for name, count in sorted(name_patterns['korean'].items(), key=lambda x: x[1], reverse=True):
+                    st.write(f"- {name} ({count}회)")
+            else:
+                st.write("발견된 한국어 이름 없음")
         
         with col2:
             st.write("**영어 이름/별명:**")
-            for name, count in sorted(name_patterns['english'].items(), key=lambda x: x[1], reverse=True):
-                st.write(f"- {name} ({count}회)")
+            if name_patterns['english']:
+                for name, count in sorted(name_patterns['english'].items(), key=lambda x: x[1], reverse=True):
+                    st.write(f"- {name} ({count}회)")
+            else:
+                st.write("발견된 영어 이름 없음")
         
         with col3:
             st.write("**기타 ID:**")
-            for name, count in sorted(name_patterns['mixed'].items(), key=lambda x: x[1], reverse=True):
-                st.write(f"- {name} ({count}회)")
+            if name_patterns['mixed']:
+                for name, count in sorted(name_patterns['mixed'].items(), key=lambda x: x[1], reverse=True):
+                    st.write(f"- {name} ({count}회)")
+            else:
+                st.write("발견된 기타 ID 없음")
+        
+        # 임계값 조정 옵션
+        st.subheader("⚙️ 설정 조정")
+        min_frequency = st.slider("최소 등장 횟수 (낮출수록 더 많은 이름 인식)", 1, 5, 2)
+        
+        if min_frequency != 2:
+            # 임계값 변경시 다시 계산
+            candidates = {part: count for part, count in part_counter.items() if count >= min_frequency}
+            
+            korean_names = {part: count for part, count in candidates.items() 
+                           if re.match(r"^[가-힣]{2,4}$", part)}
+            english_names = {part: count for part, count in candidates.items() 
+                            if re.match(r"^[a-zA-Z]{2,}$", part)}
+            mixed_ids = {part: count for part, count in candidates.items() 
+                        if re.match(r"^[가-힣a-zA-Z0-9_]{3,}$", part) and part not in korean_names and part not in english_names}
+            
+            name_patterns = {
+                'korean': korean_names,
+                'english': english_names, 
+                'mixed': mixed_ids,
+                'all_candidates': candidates
+            }
+            
+            st.write(f"**조정된 패턴 ({min_frequency}회 이상):**")
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                st.write("**한국어 이름:**")
+                for name, count in sorted(korean_names.items(), key=lambda x: x[1], reverse=True):
+                    st.write(f"- {name} ({count}회)")
+            
+            with col2:
+                st.write("**영어 이름/별명:**")
+                for name, count in sorted(english_names.items(), key=lambda x: x[1], reverse=True):
+                    st.write(f"- {name} ({count}회)")
+            
+            with col3:
+                st.write("**기타 ID:**")
+                for name, count in sorted(mixed_ids.items(), key=lambda x: x[1], reverse=True):
+                    st.write(f"- {name} ({count}회)")
 
         # 3단계: 실제 데이터 처리
         st.info("3단계: 데이터 처리 및 매칭 중...")
@@ -222,6 +285,9 @@ if uploaded_files:
                 current_name = None
                 current_content = []
                 
+                # 매칭 과정 디버깅
+                matching_debug = []
+                
                 for line in text:
                     line = line.strip()
                     if not line:
@@ -239,10 +305,24 @@ if uploaded_files:
                         
                         # 새로운 이름 처리 (패턴 기반 매칭)
                         raw_name = match.group(2).strip()
-                        current_name = smart_name_matching(raw_name, name_patterns)
+                        matched_name = smart_name_matching(raw_name, name_patterns)
+                        
+                        # 디버깅 정보 수집
+                        matching_debug.append({
+                            'raw': raw_name,
+                            'matched': matched_name,
+                            'date': date
+                        })
+                        
+                        current_name = matched_name
                         current_content = []
                     elif current_name:
                         current_content.append(line)
+
+                # 매칭 결과 저장 (나중에 표시용)
+                if 'all_matching_debug' not in st.session_state:
+                    st.session_state.all_matching_debug = []
+                st.session_state.all_matching_debug.extend(matching_debug)
 
                 # 마지막 내용 저장
                 if current_name and current_content:
@@ -259,6 +339,21 @@ if uploaded_files:
         # 결과 표시
         if content_records:
             try:
+                # 매칭 결과 디버깅 표시
+                if 'all_matching_debug' in st.session_state and st.session_state.all_matching_debug:
+                    with st.expander("🔍 디버깅: 이름 매칭 결과"):
+                        st.write("**원본 → 매칭된 이름:**")
+                        matching_df = pd.DataFrame(st.session_state.all_matching_debug)
+                        
+                        # 고유한 매칭만 표시
+                        unique_matching = matching_df.drop_duplicates(['raw', 'matched'])
+                        
+                        for _, row in unique_matching.iterrows():
+                            if row['raw'] != row['matched']:
+                                st.write(f"'{row['raw']}' → **{row['matched']}**")
+                            else:
+                                st.write(f"'{row['raw']}' → {row['matched']} (변경없음)")
+                
                 df_content = pd.DataFrame(content_records)
                 
                 st.subheader("📊 이름별 날짜별 작성 내용")
