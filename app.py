@@ -13,17 +13,39 @@ uploaded_files = st.file_uploader("📂 텍스트 파일들을 업로드하세�
 pattern = re.compile(r"^(\d+)\)\s*(?:(?:\d+조|[가-힣]+조)[\s/]*)?([\w가-힣/_]+(?:[\s/][\w가-힣/_]+)*)")
 
 def normalize_name_to_core(name):
+    # 번호와 괄호 제거 (예: "4) ", "8) ")
+    name = re.sub(r'^\d+\)\s*', '', name.strip())
+    
+    # 공백과 슬래시로 분할
     parts = re.split(r"[\s/]", name.strip())
     parts = [p for p in parts if p]
-    blacklist = {"하고랩스", "사부작사부작", "으랏차", "인스피레이션", "BGO"}
-    parts = [p for p in parts if not re.fullmatch(r"\d+조", p) and p not in blacklist]
-    korean_parts = [p for p in parts if re.fullmatch(r"[가-힣]{2,3}", p)]
+    
+    # 팀명이나 불필요한 단어 필터링 (인스피레이션 제거)
+    blacklist = {"하고랩스", "사부작사부작", "으랏차", "BGO"}
+    
+    # 조 번호 제거 및 blacklist 필터링
+    filtered_parts = []
+    for p in parts:
+        if not re.fullmatch(r"\d+조", p) and p not in blacklist:
+            filtered_parts.append(p)
+    
+    # 1. 한국어 이름 우선 검색 (2-4글자)
+    korean_parts = [p for p in filtered_parts if re.fullmatch(r"[가-힣]{2,4}", p)]
     if korean_parts:
         return max(korean_parts, key=len)
-    id_parts = [p for p in parts if re.fullmatch(r"[가-힣a-zA-Z0-9_]{4,}", p)]
+    
+    # 2. 영어 이름 검색 (2글자 이상)
+    english_parts = [p for p in filtered_parts if re.fullmatch(r"[a-zA-Z]{2,}", p)]
+    if english_parts:
+        return english_parts[-1]  # 마지막 영어 단어 선택
+    
+    # 3. ID 형식 검색 (한글+영문+숫자+언더스코어 4글자 이상)
+    id_parts = [p for p in filtered_parts if re.fullmatch(r"[가-힣a-zA-Z0-9_]{4,}", p)]
     if id_parts:
         return id_parts[-1]
-    return " ".join(sorted(parts))
+    
+    # 4. 모든 조건에 맞지 않으면 남은 부분을 정렬해서 반환
+    return " ".join(sorted(filtered_parts)) if filtered_parts else name
 
 def extract_date_from_filename(filename):
     match = re.search(r"(\d{4}[.-]?\d{2}[.-]?\d{2}|\d{1,2}월\s*\d{1,2}일|\d{4})", filename)
