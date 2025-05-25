@@ -29,7 +29,7 @@ def normalize_name_to_core(name):
             return cleaned_name.strip() if cleaned_name.strip() else name.strip()
         
         # 팀명이나 불필요한 단어 필터링
-        blacklist = {"하고랩스", "사부작사부작", "으랏차", "BGO", "and"}
+        blacklist = {"하고랩스", "사부작사부작", "으랏차", "BGO"}
         
         # 조 번호 제거 및 blacklist 필터링
         filtered_parts = []
